@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(**/engine/engine.py)",
+      "Edit(**/engine/cache.py)",
+      "Edit(**/engine/scheduler.py)",
+      "Edit(**/engine/sampler.py)"
+    ]
+  }
+}
