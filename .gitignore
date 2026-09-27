@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.csv
+
+# Hugging Face caches
+.cache/huggingface/
+.huggingface/
+hf_cache/
+
+# Development tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
