@@ -33,6 +33,8 @@ The deliverable is the benchmark table, not the code.
 
 ## Repo
 ~/Downloads/mini-vllm (git, branch main)
+GitHub: https://github.com/taral92/memwall (public; project name is memwall,
+local folder stays mini-vllm so worktree links don't break)
 Worktrees: ../mv-bench (feat/benchmarks), ../mv-server (feat/server),
 ../mv-docs (feat/docs), ../mv-attn (feat/attention), ../mv-quant (feat/quant)
 All feature branches currently sit at 70a81a4 (same as main) — no work committed on them yet.
