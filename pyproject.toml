@@ -11,8 +11,12 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi",
   "pydantic",
-  "torch",
-  "transformers",
+  # Tested with torch 2.14.0 (M1 and CI). Not pinned exactly so Kaggle can keep
+  # the CUDA build that matches its driver.
+  "torch>=2.4",
+  # Pinned: generate_cached and the correctness gate depend on how this
+  # version returns past_key_values.
+  "transformers==5.17.0",
   "uvicorn",
 ]
 
@@ -32,15 +36,19 @@ py-modules = ["run"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["engine*", "server*", "benchmarks*"]
+include = ["engine*", "server*", "benchmarks*", "reference*"]
 namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Always print skip reasons, so a skipped real-model gate is never silent.
+addopts = "-rs"
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
+# benchmarks/ has no __init__.py; resolve it as a namespace package.
+explicit_package_bases = true
 
 [tool.ruff]
 target-version = "py311"

@@ -33,8 +33,7 @@ The deliverable is the benchmark table, not the code.
 
 ## Repo
 ~/Downloads/mini-vllm (git, branch main)
-GitHub: https://github.com/taral92/memwall (public; project name is memwall,
-local folder stays mini-vllm so worktree links don't break)
+GitHub: https://github.com/Taral92/mini-vllm (public). Name stays mini-vllm.
 Worktrees: ../mv-bench (feat/benchmarks), ../mv-server (feat/server),
 ../mv-docs (feat/docs), ../mv-attn (feat/attention), ../mv-quant (feat/quant)
 All feature branches currently sit at 70a81a4 (same as main) — no work committed on them yet.
@@ -61,7 +60,7 @@ results.csv is at repo root and is gitignored (`*.csv` in .gitignore).
 
   2.8x. Low because 64 tokens is short — naive is O(n^2), cached is O(n),
   so the gap widens with length.
-- Partial MPS length sweep in results.csv (directional only):
+- MPS length sweep in results.csv (directional only):
 
   | output_len | naive tok/s | kv tok/s | speedup |
   |------------|-------------|----------|---------|
@@ -69,8 +68,70 @@ results.csv is at repo root and is gitignored (`*.csv` in .gitignore).
   | 64         | 6.58        | 18.53    | 2.8x    |
   | 128        | 7.65        | 21.13    | 2.8x    |
   | 256        | 5.13        | 18.78    | 3.7x    |
+  | 512        | 2.00        | 21.84    | 10.9x   |
 
-  512 still missing. Gap widens with length as predicted.
+  Sweep complete on MPS. Gap widens with length as predicted (naive O(n^2)).
+- Real benchmark harness (benchmarks/harness.py, 2026-09-29, AI-written):
+  `mini-vllm-benchmark --stages naive,kv --output-lens 32,64,128,256,512`.
+  Syncs before every timer stop, 3 discarded warmups (capped at 64 tokens,
+  `--warmup-len`), greedy, seed 2026, ignores EOS so every request emits
+  exactly output_len tokens, appends the 12-column rows to results.csv,
+  `-dirty` suffix on git_sha for uncommitted runs, warns on >20x speedups.
+  TTFT/TPOT come from a TimedModel wrapper that records a synced timestamp
+  after every forward — no changes to engine.py needed. New stages plug
+  into `STAGES` in harness.py.
+  Note: MPS peak_mem now sampled after every forward (includes KV +
+  activations), so it will read slightly above the old 0.988 GB.
+- engine/device.py: resolve_device (auto = MPS > CUDA > CPU) + synchronize()
+- engine/loader.py: MODEL_NAME, MODEL_REVISION pin
+  (060db6499f32faf8b98477b0a26969ef7d8b9987), dtype choice (bf16 on MPS,
+  fp16 on T4 since sm_75 has no bf16, fp32 on CPU), load_model()
+- run.py CLI: `mini-vllm --prompt "..." [--mode kv|naive]`
+- transformers pinned to 5.17.0 (torch >=2.4, tested 2.14.0)
+- tests/test_harness.py: 23 offline tests on a tiny random Qwen2 (GQA 4q/2kv):
+  naive==cached, one forward per token, IGNORE_EOS, run_benchmark metrics,
+  CSV header/schema, percentile, >20x warning, both CLIs end to end.
+  Full suite: 27 tests (26 pass in the cloud; the real-model gate skips there
+  with the reason printed because it has no weights).
+- README.md rewritten (status table, how to run); benchmark table still
+  waits for T4 numbers.
+- 2026-09-29 (session 2): I chose "reference + tests": Claude wrote a
+  complete, tested implementation in reference/ (NOT in my four files) for
+  me to port by hand. PORTING.md = order, tests per step, what to explain.
+  - reference/block_cache.py: BlockAllocator + PagedKVCache (flat slot pools
+    [layers, blocks*16, 2, 64], slot = table[p//16]*16 + p%16)
+  - reference/paged_model.py: Qwen2 forward over HF weights, paged attention
+    (write new K/V to slots, gather context, GQA repeat, SDPA causal+len mask),
+    mixed prefill+decode in one step, lm_head only on last tokens
+  - reference/scheduler.py: mutable Sequence, 2-phase schedule (running first,
+    preempt newest + recompute when out of blocks; then admit waiting)
+  - reference/llm_engine.py: LLMEngine add_request/step/generate, one seeded
+    generator per request (fixes the Sampler.sample bug), batched greedy argmax
+  - reference/static_batch.py: left-padded static batching over HF cache
+  - tests/test_batching.py: 15 offline tests (all batched paths == single
+    cached decoding token for token, preemption, EOS, seeding, limits)
+  - tests/test_correctness.py: real-model fixture now float32 (bf16 flips
+    near-tied greedy tokens: naive vs kv text diverged at ~token 33 on MPS
+    bf16); added real-model gates for static batching and paged engine
+  - harness: stages static, continuous; --batch-size, --workload
+    uniform|mixed (mixed = 4x batch requests, lengths x 1/8,1,1/4,1/2,
+    stage label "<stage>-mixed"), --num-blocks, --block-size; TTFT/latency
+    for batched rows count from arrival (queueing included); gc +
+    empty_cache between runs; >20x warning only within same batch size
+  - CPU smoke (random 8-layer Qwen2, batch 8, len 64 — shape only, not
+    numbers): kv 149 tok/s, static 588, continuous 618; mixed workload:
+    static 283 vs continuous 405 tok/s, p99 3.4 s vs 2.3 s
+  - benchmarks/kaggle_t4.ipynb: gates + length sweep + batch-size sweep
+    (1,4,8,16,32) + mixed workload, prints the README table
+  - Full suite in cloud: 50 passed, 3 skipped (real-model gates need weights)
+- 2026-09-29 MPS batching run #1 (bf16, batch 8, len 128): kv 27.3, static
+  157.7, continuous 47.8 tok/s (TPOT 166 ms vs static 50). Mixed len 256:
+  static 70.8 vs continuous 36.7. Cause: paged_model used boolean-mask
+  indexing (k[q_valid]) = 2 GPU->CPU syncs/layer x 24 = 48 stalls per step;
+  invisible on CPU. Fixed with CPU-built index + index_select; new test
+  test_paged_forward_has_no_device_syncs (TorchDispatchMode) fails if any
+  sync op / bool-mask index appears in forward. Re-run pending.
+  Interview story: "no data-dependent shapes on the GPU in the hot loop".
 
 ## Parked
 - Custom block-aware attention + paged KV cache: ~900 lines (engine/model.py,
@@ -83,18 +144,25 @@ results.csv is at repo root and is gitignored (`*.csv` in .gitignore).
 ## Not done
 - engine/quant.py — does NOT exist on any branch or in the stash. Only the
   BONUS-1 prompt in prompts/ALL.md. May be uncommitted in ../mv-quant; unverified.
-- benchmarks/harness.py is still a STUB — benchmarks so far came from a
-  throwaway script that is not in the repo. Real harness is the blocker.
-- run.py, server/api.py, engine/device.py (resolve_device), and the
-  LLMEngine/ModelRunner/KVCache/Scheduler classes on main are stubs.
-- README.md is stale (still says everything is a stub).
-- Static batching
-- Continuous batching  <- highest interview value, completely untouched
-- Paged KV cache (parked in stash)
+- server/api.py and the LLMEngine/ModelRunner/KVCache/Scheduler classes on
+  main are stubs. Server waits for LLMEngine.step().
+- Port reference/ into my four files + engine/model.py (PORTING.md order:
+  sampler fix, static batching, cache, model runner, scheduler, step loop)
 - Speculative decoding
 - FastAPI server + Docker
-- Kaggle T4 benchmark run (all README numbers must come from here)
-- Length sweep: 512 on MPS, and the whole sweep on T4
+- Kaggle T4 benchmark run + full length sweep (all README numbers come from here)
+
+## Open issues in the hand-written files (found 2026-09-29, not fixed — mine to fix)
+- sampler.py: `Sampler.sample` builds and seeds a new torch.Generator on
+  every call, so every decode step reuses the same random draw. Seed once per
+  request and keep the generator on the request. (Module-level `sample()`
+  used by generate_* is unaffected.) Fixed in reference/llm_engine.py.
+- scheduler.py: `Request` is frozen with prompt ids only. Fixed in
+  reference/scheduler.py (mutable Sequence).
+- model.py: forward() takes `Mapping[int, (K, V)]` dense per-layer tensors.
+  Replaced in reference/paged_model.py by BatchInput(block_tables, positions).
+- server/api.py: max_new_tokens has ge=1 but no le=; no prompt-length cap;
+  temperature<0 passes pydantic and becomes a 500. Fix when writing the server.
 
 ## Rules
 - AI may write: harness, server, Docker, load test, tests, docs, README
@@ -139,6 +207,10 @@ At batch 64 → 1.6GB, larger than the 1GB of weights. That's why paging matters
 - The Cowork shell is a Linux VM, not the Mac. The repo's .venv is a macOS venv
   and torch/MPS are not available there — pytest and benchmarks must be run by
   me in my own terminal. Git, reading, and editing work from Cowork.
+- Claude's cloud workspace can pip-install torch/transformers (CPU) and run
+  tests/test_harness.py, but huggingface.co is blocked by egress policy there
+  and in the Cowork VM, so the real-model gate only runs on the Mac / Kaggle.
+- Don't commit from Cowork (index.lock problem) — I commit from the Mac.
 - From the Cowork VM, the worktrees show as "prunable" (their /Users/... paths
   aren't mounted). NEVER run `git worktree prune` from Cowork.
 - Use `git --no-optional-locks` for read-only git commands from Cowork: plain
@@ -149,7 +221,13 @@ At batch 64 → 1.6GB, larger than the 1GB of weights. That's why paging matters
   done without a benchmark row and a passing correctness test.
 
 ## Next up
-1. Real benchmark harness (unblocks everything)
-2. Length sweep: add 512 (MPS), then the full sweep on T4
-3. Continuous batching
-4. Kaggle T4 run for README numbers
+1. Me: `pip install -e ".[dev]" && pytest` on the Mac — all 53 must pass
+   (the 3 real-model gates in float32 included), then commit + push
+2. Me: MPS batching check: `mini-vllm-benchmark --stages kv,static,continuous
+   --batch-size 8 --output-lens 128 --no-write` and the mixed workload
+3. Kaggle: run benchmarks/kaggle_t4.ipynb → README benchmark table
+4. Me: port reference/ into engine/ following PORTING.md; keep tests green
+5. Open: kv TTFT jumped 48 -> ~300 ms at len 128/256 right after naive runs
+   (MPS). gc + empty_cache now run between stages; re-check.
+6. Later: server + Docker (AI), speculative decoding, int8 (optional)
+7. stash@{0} is superseded by reference/ — drop it once the port is done
