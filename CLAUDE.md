@@ -220,14 +220,19 @@ At batch 64 → 1.6GB, larger than the 1GB of weights. That's why paging matters
   session where a stage completes or a benchmark runs. Never claim a stage is
   done without a benchmark row and a passing correctness test.
 
+## T4 results (Kaggle, fp16, 2026-10-04)
+- Batching: static 1 -> 32 users = 31.8 -> 1,080.8 tok/s (34x), TPOT flat ~30 ms.
+- Continuous vs static, uniform lengths: within 3-10% (the 3.3x slowdown was MPS-only).
+- Continuous vs static, mixed lengths: 212.9 vs 126.8 tok/s (1.7x), TTFT 4.6 s vs 11.4 s.
+- naive vs kv at batch 1: only 1.04-1.24x. TPOT ~32 ms vs ~3 ms bandwidth floor
+  (1 GB / 320 GB/s): at 0.5B the engine is overhead-bound (kernel launches,
+  Python), not memory-bound. CUDA graphs / torch.compile = the next lever.
+  README must say this honestly.
+
 ## Next up
-1. Me: `pip install -e ".[dev]" && pytest` on the Mac — all 53 must pass
-   (the 3 real-model gates in float32 included), then commit + push
-2. Me: MPS batching check: `mini-vllm-benchmark --stages kv,static,continuous
-   --batch-size 8 --output-lens 128 --no-write` and the mixed workload
-3. Kaggle: run benchmarks/kaggle_t4.ipynb → README benchmark table
-4. Me: port reference/ into engine/ following PORTING.md; keep tests green
-5. Open: kv TTFT jumped 48 -> ~300 ms at len 128/256 right after naive runs
-   (MPS). gc + empty_cache now run between stages; re-check.
-6. Later: server + Docker (AI), speculative decoding, int8 (optional)
-7. stash@{0} is superseded by reference/ — drop it once the port is done
+1. Commit the T4 results.csv (now un-ignored) + push
+2. Me: port reference/ into engine/ following PORTING.md; keep tests green
+3. README with the T4 table (AI), incl. the overhead-bound finding
+4. Server + Docker (AI), after the port
+5. Cleanup: remove unused worktrees, drop stash@{0}, delete W1-A/W1-B from prompts/ALL.md
+6. Optional later: CUDA graphs, speculative decoding, int8

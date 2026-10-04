@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 *.csv
+!results.csv
 
 # Hugging Face caches
 .cache/huggingface/
