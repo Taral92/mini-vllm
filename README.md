@@ -122,6 +122,12 @@ harness and the server (`tests/test_batching.py`, `tests/test_harness.py`,
 - **bf16 on a T4.** `torch.cuda.is_bf16_supported()` returns true on a T4
   because it counts software emulation, which would have made every T4 number
   slow. The loader now checks compute capability (bf16 needs 8.0+).
+- **Batch-dependent output in bf16.** Streaming one long greedy request while
+  a second joined mid-generation changed the long one's text at token 33:
+  the batch went from 1 row to 2, the rounding order changed, and a near-tied
+  token flipped. In float32 the solo and batched outputs are identical
+  (`diff` clean), so batching itself is correct; bf16 batch invariance would
+  need batch-invariant kernels.
 - **Continuous batching 3.3x slower than static on the M1.** On the T4 the
   gap is 3-10%. The remaining cost is gathering K/V from scattered blocks.
 
