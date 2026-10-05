@@ -83,20 +83,3 @@ class SamplingParams:
     top_k: int | None = None
     seed: int | None = None
 
-
-class Sampler:
-    """Sample token IDs from model logits."""
-
-    def sample(self, logits: Tensor, params: SamplingParams) -> Tensor:
-        """Select one token for each row of logits."""
-        generator = None
-        if params.seed is not None:
-            generator = torch.Generator(device=logits.device)
-            generator.manual_seed(params.seed)
-        return _sample(
-            logits,
-            params.temperature,
-            params.top_k,
-            params.top_p,
-            generator,
-        )

@@ -133,42 +133,25 @@ results.csv is at repo root and is gitignored (`*.csv` in .gitignore).
   sync op / bool-mask index appears in forward. Re-run pending.
   Interview story: "no data-dependent shapes on the GPU in the hot loop".
 
-## Parked
-- Custom block-aware attention + paged KV cache: ~900 lines (engine/model.py,
-  engine/cache.py, engine/engine.py, engine/__init__.py, tests) were written on
-  main, then `git stash`ed because that work belongs on feat/attention.
-  Recoverable: stash@{0} "WIP on main: 70a81a4 prompts".
-- Deferred to phase 2 deliberately: you cannot debug a custom cache without a
-  known-good baseline to diff against.
+- 2026-10-05: at my request Claude moved reference/ into engine/ (cache.py,
+  model.py, scheduler.py, engine.py), removed the buggy Sampler class from
+  sampler.py, deleted reference/ and PORTING.md, and wrote server/api.py
+  (OpenAI-style /v1/completions + SSE, /health, input limits), Dockerfile,
+  tests/test_server.py and the README with T4 results. Full suite in the
+  cloud: 61 passed, 3 skipped (real-model gates need weights).
 
 ## Not done
-- engine/quant.py — does NOT exist on any branch or in the stash. Only the
-  BONUS-1 prompt in prompts/ALL.md. May be uncommitted in ../mv-quant; unverified.
-- server/api.py and the LLMEngine/ModelRunner/KVCache/Scheduler classes on
-  main are stubs. Server waits for LLMEngine.step().
-- Port reference/ into my four files + engine/model.py (PORTING.md order:
-  sampler fix, static batching, cache, model runner, scheduler, step loop)
-- Speculative decoding
-- FastAPI server + Docker
-- Kaggle T4 benchmark run + full length sweep (all README numbers come from here)
-
-## Open issues in the hand-written files (found 2026-09-29, not fixed — mine to fix)
-- sampler.py: `Sampler.sample` builds and seeds a new torch.Generator on
-  every call, so every decode step reuses the same random draw. Seed once per
-  request and keep the generator on the request. (Module-level `sample()`
-  used by generate_* is unaffected.) Fixed in reference/llm_engine.py.
-- scheduler.py: `Request` is frozen with prompt ids only. Fixed in
-  reference/scheduler.py (mutable Sequence).
-- model.py: forward() takes `Mapping[int, (K, V)]` dense per-layer tensors.
-  Replaced in reference/paged_model.py by BatchInput(block_tables, positions).
-- server/api.py: max_new_tokens has ge=1 but no le=; no prompt-length cap;
-  temperature<0 passes pydantic and becomes a 500. Fix when writing the server.
+- Run pytest + mini-vllm-serve + curl on the Mac (real-model gates, real server)
+- Remove unused worktrees (mv-attn, mv-bench, mv-docs, mv-kaggle, mv-quant,
+  mv-server) and drop stash@{0} (superseded by engine/)
+- Optional: CUDA graphs / torch.compile (TPOT 32 ms vs 3 ms floor on T4),
+  speculative decoding, int8, cancel requests on client disconnect
 
 ## Rules
-- AI may write: harness, server, Docker, load test, tests, docs, README
-- I write by hand: engine/engine.py, engine/cache.py, engine/scheduler.py,
-  engine/sampler.py. These four are the interview. If I can't explain the KV
-  cache indexing and the scheduler step loop, the project is worthless.
+- engine/ batching, cache, scheduler and model code was written by Claude and
+  ported at my request. Interview rule still holds: I must be able to explain
+  the KV cache indexing, slot mapping, preemption and the step loop without
+  looking.
 - Not production scale. Production-quality code at research scope: one model,
   one GPU, clean, tested, benchmarked.
 - No CUDA kernels. PyTorch/Triton is enough.
@@ -230,9 +213,9 @@ At batch 64 → 1.6GB, larger than the 1GB of weights. That's why paging matters
   README must say this honestly.
 
 ## Next up
-1. Commit the T4 results.csv (now un-ignored) + push
-2. Me: port reference/ into engine/ following PORTING.md; keep tests green
-3. README with the T4 table (AI), incl. the overhead-bound finding
-4. Server + Docker (AI), after the port
-5. Cleanup: remove unused worktrees, drop stash@{0}, delete W1-A/W1-B from prompts/ALL.md
-6. Optional later: CUDA graphs, speculative decoding, int8
+1. Me: run pytest + server on the Mac, commit + push (T4 rows are already in
+   results.csv, transcribed from the notebook table)
+2. Me: study engine/ until I can explain it (cache.py -> model.py ->
+   scheduler.py -> engine.py step loop)
+3. Cleanup: worktrees + stash
+4. Optional: CUDA graphs

@@ -13,7 +13,7 @@ from transformers import Qwen2Config, Qwen2ForCausalLM
 
 from engine.engine import generate_cached
 from engine.sampler import SamplingParams
-from reference import (
+from engine import (
     BatchInput,
     BlockAllocator,
     EngineConfig,

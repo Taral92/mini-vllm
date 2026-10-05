@@ -169,7 +169,7 @@ def test_static_batch_matches_single(
     single_outputs: tuple[list[list[int]], list[list[int]]],
 ) -> None:
     """Left-padded static batching must not change any prompt's greedy tokens."""
-    from reference import generate_static
+    from engine import generate_static
 
     model, tokenizer = model_and_tokenizer
     prompt_ids, expected = single_outputs
@@ -183,7 +183,7 @@ def test_paged_engine_matches_single(
     single_outputs: tuple[list[list[int]], list[list[int]]],
 ) -> None:
     """Continuous batching over the paged KV cache must match single requests."""
-    from reference import EngineConfig, LLMEngine
+    from engine import EngineConfig, LLMEngine
 
     model, tokenizer = model_and_tokenizer
     prompt_ids, expected = single_outputs

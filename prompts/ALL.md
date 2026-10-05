@@ -1,26 +1,4 @@
 
-## W1-A: engine core (main window)
-Implement engine/sampler.py and engine/engine.py.
-sampler.py: sample(logits[batch,vocab], temperature, top_k, top_p) -> [batch,1].
-temperature==0 is greedy, no division. top_k masks below kth. top_p is nucleus.
-Subtract max before softmax.
-engine.py, both @torch.no_grad(), return list[int], handle EOS early stop:
-- generate_naive(model, ids, max_new, eos_id, **sp): full re-forward each step, deliberately slow, this is the baseline
-- generate_cached(model, ids, max_new, eos_id, **sp): past_key_values, prefill prompt once then one token per step
-Inline comments explaining exactly what work the cached version skips.
-
-## W1-B: scheduler + batching (main window, after W1-A)
-Implement engine/scheduler.py and batched execution in engine/engine.py.
-Request dataclass: id, prompt_ids, generated, max_tokens, sampling_params, finished.
-Scheduler: waiting deque, running list, max_batch_size, add_request, schedule(),
-finish() frees the slot immediately. Continuous batching: freed slot refills on the
-NEXT step, not after the batch drains.
-Engine: step() -> list[(request_id, token_id, finished)]. One batched forward for all
-running requests. Per-request KV cache, left-padding, correct attention mask,
-per-request sampling params.
-Comment explaining why batching helps decode: memory-bandwidth bound, weights read
-once and reused across the batch.
-
 ## W2-A: benchmark harness (mv-bench window)
 Write benchmarks/harness.py and benchmarks/run.py.
 Measure decode tokens/sec, TTFT, TPOT, end-to-end p50/p99, peak memory.

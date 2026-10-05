@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mini-vllm"
 version = "0.1.0"
-description = "A typed, educational skeleton for a compact LLM inference engine"
+description = "A small LLM inference engine: KV cache, continuous batching, paged KV cache"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "httpx",  # fastapi TestClient, used by tests/test_server.py
   "mypy",
   "pytest",
   "ruff",
@@ -30,13 +31,14 @@ dev = [
 [project.scripts]
 mini-vllm = "run:main"
 mini-vllm-benchmark = "benchmarks.harness:main"
+mini-vllm-serve = "server.api:main"
 
 [tool.setuptools]
 py-modules = ["run"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["engine*", "server*", "benchmarks*", "reference*"]
+include = ["engine*", "server*", "benchmarks*"]
 namespaces = true
 
 [tool.pytest.ini_options]

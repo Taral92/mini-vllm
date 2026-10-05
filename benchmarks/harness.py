@@ -44,7 +44,7 @@ from torch import device as TorchDevice
 from engine.device import synchronize
 from engine.engine import generate_cached, generate_naive
 from engine.loader import MODEL_NAME, load_model
-from reference import EngineConfig, LLMEngine, SeqStatus, generate_static
+from engine import EngineConfig, LLMEngine, SeqStatus, generate_static
 
 GenerateFn = Callable[..., list[int]]
 
@@ -124,7 +124,7 @@ class TimedModel:
 
     The generate functions call ``model(...)`` once per emitted token, so the
     first finish time gives time-to-first-token and the rest give the decode
-    rate, without touching the hand-written engine code.
+    rate, without touching the engine code.
     """
 
     def __init__(self, model: Any, device: TorchDevice) -> None:

@@ -30,7 +30,7 @@ from benchmarks.harness import (
 from engine.device import resolve_device
 from engine.engine import generate_cached, generate_naive
 from engine.loader import resolve_dtype
-from reference import EngineConfig, LLMEngine
+from engine import EngineConfig, LLMEngine
 
 CPU = torch.device("cpu")
 REPO_ROOT = Path(__file__).resolve().parents[1]

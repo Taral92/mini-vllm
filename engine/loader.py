@@ -35,7 +35,11 @@ def resolve_dtype(device: TorchDevice, requested: DTypeName = "auto") -> torch.d
     if requested != "auto":
         return _DTYPES[requested]
     if device.type == "cuda":
-        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        # Native bf16 needs compute capability 8.0+ (Ampere). Don't use
+        # torch.cuda.is_bf16_supported(): it also counts slow software
+        # emulation, so it says yes on a T4 (7.5).
+        major, _ = torch.cuda.get_device_capability(device)
+        return torch.bfloat16 if major >= 8 else torch.float16
     if device.type == "mps":
         return torch.bfloat16
     return torch.float32
