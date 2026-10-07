@@ -187,6 +187,25 @@ def test_engine_matches_single(
     assert engine.cache.allocator.num_free == 64  # every block returned
 
 
+def test_engine_abort_frees_seat_and_blocks(
+    model: Any, prompts: list[list[int]], expected: list[list[int]]
+) -> None:
+    """Aborting a running and a waiting request frees everything; others finish."""
+    engine = LLMEngine(model, config=EngineConfig(max_batch_size=2, num_blocks=64))
+    for i, prompt in enumerate(prompts[:3]):
+        engine.add_request(f"r{i}", prompt, max_new_tokens=MAX_NEW, ignore_eos=True)
+    engine.step()  # r0, r1 running; r2 waiting
+    engine.abort("r0")  # running
+    engine.abort("r2")  # waiting
+    engine.abort("missing")  # unknown ids are ignored
+    assert [s.request_id for s in engine.scheduler.running] == ["r1"]
+    assert not engine.scheduler.waiting
+    while engine.has_unfinished():
+        engine.step()
+    assert engine.sequences["r1"].output_ids == expected[1]
+    assert engine.cache.allocator.num_free == 64
+
+
 def test_engine_preemption_keeps_output(
     model: Any, prompts: list[list[int]], expected: list[list[int]]
 ) -> None:

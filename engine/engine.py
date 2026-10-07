@@ -228,6 +228,20 @@ class LLMEngine:
     def has_unfinished(self) -> bool:
         return self.scheduler.has_pending()
 
+    def abort(self, request_id: str) -> None:
+        """Drop a request now (e.g. the client hung up) and free its blocks.
+
+        Call between steps only. Unknown or already finished ids are ignored.
+        """
+        seq = self.sequences.pop(request_id, None)
+        if seq is None or seq.status is SeqStatus.FINISHED:
+            return
+        if seq.status is SeqStatus.RUNNING:
+            self.scheduler.finish(seq)  # releases blocks, frees the seat
+        else:
+            self.scheduler.waiting.remove(seq)  # waiting requests hold no blocks
+            seq.status = SeqStatus.FINISHED
+
     def step(self) -> dict[str, int]:
         """Run one model step. Returns the new token id for each request that ran."""
         batch = self.scheduler.schedule()

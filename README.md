@@ -149,6 +149,20 @@ curl -N localhost:8000/v1/completions -H 'content-type: application/json' \
 
 Qwen2.5-0.5B is a base model: give it text to continue, not a question.
 
+### Chat UI
+
+```bash
+mini-vllm-serve --model Qwen/Qwen2.5-0.5B-Instruct   # open http://localhost:8000
+```
+
+A ChatGPT-style page served by the same process (`server/static/index.html`,
+no build step) on top of `/v1/chat/completions`. Replies stream token by
+token, and under each one the server's own TTFT and tok/s are shown. The side
+panel polls `/health` and shows the engine live: batch slots filling up as
+requests join, KV-cache blocks in use, queue length. Open two tabs and send at
+once to watch continuous batching. Stop (or closing the tab) aborts the request
+in the engine and frees its seat and blocks on the next step.
+
 Docker (CPU by default; pass a CUDA wheel index for GPU):
 
 ```bash
@@ -179,7 +193,8 @@ queueing.
 - `engine/model.py`: Qwen2 forward over the paged cache (HF weights, own attention)
 - `engine/sampler.py`: greedy, temperature, top-k, top-p
 - `engine/loader.py`, `engine/device.py`: pinned model loading, dtype, device sync
-- `server/api.py`: `/v1/completions` (JSON or SSE streaming) and `/health`
+- `server/api.py`: `/v1/completions`, `/v1/chat/completions` (JSON or SSE
+  streaming), `/health`, and the chat UI at `/` (`server/static/index.html`)
 - `benchmarks/`: harness CLI and the Kaggle T4 notebook
 - `tests/`: real-model gates and offline tests
 
@@ -187,6 +202,4 @@ queueing.
 
 - CUDA graphs / `torch.compile` for the per-step overhead found above.
 - Speculative decoding; int8 weight-only quantization.
-- A client that disconnects mid-stream is not cancelled; its request runs to
-  completion.
 - The GPU Docker image is untested.

@@ -41,6 +41,9 @@ where = ["."]
 include = ["engine*", "server*", "benchmarks*"]
 namespaces = true
 
+[tool.setuptools.package-data]
+server = ["static/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Always print skip reasons, so a skipped real-model gate is never silent.

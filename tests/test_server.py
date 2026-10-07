@@ -149,3 +149,120 @@ def test_prompt_too_long_rejected(client: Any) -> None:
     )
     assert response.status_code == 400
     assert "limit" in response.json()["detail"]
+
+
+# --- chat endpoint, UI, abort ------------------------------------------------
+
+
+class ChatTokenizer(CharTokenizer):
+    """CharTokenizer plus a toy chat template."""
+
+    chat_template = "toy"
+
+    def apply_chat_template(
+        self,
+        turns: list[dict[str, str]],
+        tokenize: bool = False,
+        add_generation_prompt: bool = True,
+    ) -> str:
+        text = "".join(f"[{t['role']}]{t['content']}" for t in turns)
+        return text + ("[assistant]" if add_generation_prompt else "")
+
+
+@pytest.fixture(scope="module")
+def chat_client(tiny_model: Any) -> Any:
+    app = create_app(
+        "tiny-chat", "cpu", config=CONFIG, model=tiny_model, tokenizer=ChatTokenizer()
+    )
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+CHAT = {
+    "messages": [
+        {"role": "system", "content": "be brief"},
+        {"role": "user", "content": "hi there"},
+    ],
+    "max_tokens": 12,
+    "temperature": 0,
+}
+
+
+def test_chat_matches_engine(chat_client: Any, tiny_model: Any) -> None:
+    body = chat_client.post("/v1/chat/completions", json=CHAT).json()
+    assert body["object"] == "chat.completion"
+    message = body["choices"][0]["message"]
+    assert message["role"] == "assistant"
+    prompt = ChatTokenizer().apply_chat_template(CHAT["messages"])
+    assert message["content"] == _expected(tiny_model, prompt, 12)
+    assert body["usage"]["prompt_tokens"] == len(prompt)
+    assert body["metrics"]["ttft_ms"] >= 0
+
+
+def test_chat_stream_matches_non_stream(chat_client: Any) -> None:
+    full = chat_client.post("/v1/chat/completions", json=CHAT).json()
+    events: list[dict[str, Any]] = []
+    with chat_client.stream(
+        "POST", "/v1/chat/completions", json={**CHAT, "stream": True}
+    ) as response:
+        for line in response.iter_lines():
+            if line.startswith("data: ") and line != "data: [DONE]":
+                events.append(json.loads(line[len("data: ") :]))
+    assert events[0]["choices"][0]["delta"]["role"] == "assistant"
+    assert all(e["object"] == "chat.completion.chunk" for e in events)
+    text = "".join(e["choices"][0]["delta"].get("content", "") for e in events)
+    assert text == full["choices"][0]["message"]["content"]
+    assert events[-1]["usage"]["completion_tokens"] == 12
+    assert events[-1]["choices"][0]["finish_reason"] in ("stop", "length")
+
+
+def test_chat_needs_chat_template(client: Any) -> None:
+    response = client.post("/v1/chat/completions", json=CHAT)
+    assert response.status_code == 400
+    assert "chat template" in response.json()["detail"]
+
+
+def test_long_chat_drops_oldest_turns(chat_client: Any) -> None:
+    """A history longer than max_tokens_per_batch is trimmed, not rejected."""
+    turns = [{"role": "user", "content": "x" * 60} for _ in range(8)]
+    body = chat_client.post(
+        "/v1/chat/completions", json={"messages": turns, "max_tokens": 4}
+    ).json()
+    assert body["usage"]["prompt_tokens"] <= CONFIG.max_tokens_per_batch
+
+
+def test_ui_and_health(chat_client: Any) -> None:
+    page = chat_client.get("/")
+    assert page.status_code == 200
+    assert "mini-vLLM" in page.text and "/v1/chat/completions" in page.text
+    health = chat_client.get("/health").json()
+    assert health["chat"] is True
+    assert health["max_batch_size"] == CONFIG.max_batch_size
+    assert health["kv_blocks_total"] == CONFIG.num_blocks
+    assert health["kv_blocks_used"] == 0
+
+
+def test_worker_abort_frees_seat(tiny_model: Any) -> None:
+    """A client hang-up mid-generation frees the request's seat and blocks."""
+    import asyncio
+
+    from engine.sampler import SamplingParams
+    from server.api import EngineWorker
+
+    async def scenario() -> None:
+        engine = LLMEngine(tiny_model, CharTokenizer(), CONFIG)
+        worker = EngineWorker(engine)
+        worker.start()
+        greedy = SamplingParams(temperature=0)
+        queue = worker.submit("long", [5, 6, 7], greedy, 200)
+        await queue.get()  # first token: it is running
+        worker.abort("long")
+        for _ in range(200):
+            await asyncio.sleep(0.005)
+            if not engine.has_unfinished():
+                break
+        assert not engine.has_unfinished()
+        assert engine.cache.allocator.num_free == CONFIG.num_blocks
+        await worker.stop()
+
+    asyncio.run(scenario())
